@@ -1,0 +1,100 @@
+{
+  "video_info": {
+    "source": "test.mp4",
+    "resolution": {
+      "width": 922,
+      "height": 524
+    },
+    "source_fps": 30.06,
+    "frames_processed": 300,
+    "duration_processed_sec": 9.98
+  },
+  "config": {
+    "model": "yolov8n.pt",
+    "confidence_threshold": 0.4,
+    "event_cooldown_sec": 1.0,
+    "warmup_frames": 5,
+    "zone": {
+      "name": "restricted_zone_1",
+      "polygon_pixels": [
+        [
+          507,
+          183
+        ],
+        [
+          875,
+          183
+        ],
+        [
+          875,
+          497
+        ],
+        [
+          507,
+          497
+        ]
+      ]
+    }
+  },
+  "performance": {
+    "total_processing_time_sec": 37.31,
+    "avg_processing_fps": 8.04
+  },
+  "summary": {
+    "total_zone_entry_events": 2,
+    "events_by_class": {
+      "person": 2
+    },
+    "unique_objects_seen": {
+      "car": 3,
+      "person": 9
+    },
+    "total_detections_across_frames": {
+      "car": 662,
+      "person": 1170
+    },
+    "objects_already_inside_zone_at_start": 2
+  },
+  "events": [
+    {
+      "event_id": 1,
+      "event_type": "zone_entry",
+      "zone": "restricted_zone_1",
+      "timestamp_sec": 0.83,
+      "frame_number": 25,
+      "track_id": 3,
+      "object_class": "person",
+      "confidence": 0.85,
+      "bbox_pixels": {
+        "x1": 479,
+        "y1": 56,
+        "x2": 564,
+        "y2": 259
+      },
+      "foot_point_pixels": {
+        "x": 521,
+        "y": 259
+      }
+    },
+    {
+      "event_id": 2,
+      "event_type": "zone_entry",
+      "zone": "restricted_zone_1",
+      "timestamp_sec": 2.23,
+      "frame_number": 67,
+      "track_id": 2,
+      "object_class": "person",
+      "confidence": 0.83,
+      "bbox_pixels": {
+        "x1": 481,
+        "y1": 54,
+        "x2": 535,
+        "y2": 198
+      },
+      "foot_point_pixels": {
+        "x": 508,
+        "y": 198
+      }
+    }
+  ]
+}
