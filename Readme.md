@@ -2,8 +2,7 @@
 
 A video analytics prototype that detects and tracks objects in CCTV-style footage using **YOLO** and **OpenCV**, and generates structured **JSON events** when an object enters a predefined restricted zone.
 
-<img width="613" height="502" alt="Screenshot 2026-10-07 050011" src="https://github.com/user-attachments/assets/ab7edfb1-897e-4d31-a405-92323770033b" />
-
+See [output/events.json](output/events.json) for a full sample report.
 
 ## Features
 
