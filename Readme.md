@@ -1,47 +1,115 @@
-# Real-Time CCTV Object Detection & Event Pipeline
+# Real-Time CCTV Object Detection & Zone-Entry Event Pipeline
 
-A video analytics prototype that detects and tracks objects in CCTV-style footage using **YOLO** and **OpenCV**, and generates structured **JSON events** when an object enters a predefined restricted zone.
+![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)
+![YOLOv8](https://img.shields.io/badge/Ultralytics-YOLOv8n-00FFFF)
+![OpenCV](https://img.shields.io/badge/OpenCV-Computer%20Vision-5C3EE8?logo=opencv&logoColor=white)
+![Output](https://img.shields.io/badge/Output-JSON%20events-success)
 
-See [output/events.json](output/events.json) for a full sample report.
+A video-analytics prototype that **detects and tracks objects in CCTV-style footage** with YOLOv8 + OpenCV, and emits **structured JSON events** whenever a tracked object enters a user-defined **restricted zone**.
 
-## Features
+Instead of just drawing boxes, the pipeline turns pixels into *machine-readable events* (who, what, when, where, how confident) that a downstream system can consume: alerts, dashboards, queues, or audit logs.
 
-- Frame-by-frame object detection with YOLO (Ultralytics)
-- Confidence-based filtering (`--conf`)
-- Multi-object tracking, so every object keeps a persistent `track_id`
-- Bounding-box visualization with class, confidence and track ID
-- Live FPS monitoring overlaid on the video
-- Restricted-zone (polygon) entry detection
-- Structured JSON report with video info, config, performance, summary and events
-- Duplicate-event protection (warm-up frames and per-track cooldown)
+![Restricted-zone detection demo: tracked objects with IDs, red restricted zone, live FPS and event counter](output/demo.png)
+
+---
+
+## Results
+
+Measured on the included `test.mp4` (first 10 seconds), default settings (`yolov8n.pt`, confidence 0.4):
+
+| Metric | Value |
+|---|---|
+| Input resolution | 922 x 524 |
+| Source frame rate | 30.06 FPS |
+| Frames processed | 300 (9.98 s of video) |
+| Hardware | HP 15s laptop |
+| Total processing time | 37.31 s |
+| Average processing speed (end-to-end) | **8.04 FPS** (about 0.27x real-time) |
+| Detections across all frames | 1,832 (1,170 person, 662 car) |
+| Unique tracked objects | 12 (9 person, 3 car) |
+| Zone-entry events raised | **2** (both `person`) |
+| Objects already inside zone at start (excluded) | 2 |
+| Restricted zone size | 368 x 314 px, about 24% of the frame |
+
+> The reported FPS is **end-to-end** (frames processed divided by wall-clock time, including video decode, drawing and writing the output video), not inference-only. The FPS shown on the video overlay is a smoothed inference-only value, so it reads higher.
+
+> **Reading the numbers:** 1,832 detections collapse to 12 unique objects because each object is detected in many frames. Tracking turns detections into *identities*, and the zone logic turns identities into *events*: 1,832 detections became 2 events.
+
+---
 
 ## How it works
 
-1. Read the video and process the first N seconds (`--seconds`).
-2. Run YOLO with tracking on each frame and drop detections below the confidence threshold.
-3. For each tracked object, take the **bottom-center point** of its bounding box (roughly where it touches the ground).
-4. Check whether that point lies inside the restricted polygon.
-5. If an object was **outside** in the previous frame and is **inside** now, log a `zone_entry` event.
+```mermaid
+flowchart LR
+    A[Video / Webcam] --> B[YOLOv8n detect + track]
+    B --> C{conf >= 0.4?}
+    C -- no --> X[drop]
+    C -- yes --> D[Foot point = bottom-center of box]
+    D --> E{Was outside, now inside zone?}
+    E -- no --> F[Update state]
+    E -- yes --> G{Warm-up passed and cooldown elapsed?}
+    G -- no --> F
+    G -- yes --> H[Emit zone_entry event]
+    H --> I[(events.json)]
+    B --> J[Annotated output.mp4]
+```
+
+1. Read the video and process the first `--seconds` seconds.
+2. Run YOLOv8 with Ultralytics' built-in tracker (`model.track`, `persist=True`) on each frame; discard detections below `--conf`.
+3. For every tracked object, take the **bottom-center point** of its bounding box (roughly where it touches the ground).
+4. Test whether that point lies inside the restricted polygon.
+5. If the object was **outside** in the previous frame and is **inside** now, log a `zone_entry` event.
 6. Write the annotated video and the JSON report.
 
-Two safeguards keep the events clean:
+### Two safeguards that keep events clean
 
-- **Warm-up:** objects already inside the zone during the first 5 frames are not counted as entries. They are reported separately as `objects_already_inside_zone_at_start`.
-- **Cooldown:** the same `track_id` cannot trigger another event within `--cooldown` seconds. This stops flickering on the zone border from creating duplicates.
+- **Warm-up (5 frames):** objects already inside the zone at the start are *not* counted as entries. They are reported separately as `objects_already_inside_zone_at_start`.
+- **Cooldown (1.0 s default):** the same `track_id` cannot fire again within `--cooldown` seconds (converted to frames using the source FPS, so 30 frames on the sample clip), so flickering on the zone border does not create duplicate events.
 
-## Setup
+---
+
+## Features
+
+- Frame-by-frame detection with **YOLOv8 (Ultralytics)**
+- Confidence-based filtering (`--conf`)
+- **Multi-object tracking**: every object keeps a persistent `track_id`
+- Bounding boxes annotated with class, confidence and track ID
+- **Live FPS overlay** on the output video
+- **Polygon restricted-zone** entry detection (foot-point test)
+- Class filtering using COCO IDs (e.g. persons and cars only)
+- Webcam support (`--video 0`)
+- Structured **JSON report**: video info, config, performance, summary and events
+- Duplicate-event protection (warm-up + per-track cooldown)
+
+---
+
+## Quick start
 
 ```bash
+git clone https://github.com/Krish033-source/OpenCV_Yolo.git
+cd OpenCV_Yolo
 pip install -r requirements.txt
+
+python CV_v2.py --video test.mp4 --seconds 10 --out output/output.mp4 --events output/events.json
 ```
 
-The YOLO weights (`yolov8n.pt`) download automatically on the first run.
+The YOLO weights (`yolov8n.pt`) are downloaded automatically on the first run.
 
-## Usage
+### More examples
 
 ```bash
-python cctv_detect.py --video test.mp4 --seconds 10
+# Persons only, custom zone covering the left half of the frame
+python CV_v2.py --video test.mp4 --classes 0 \
+  --zone "0.05,0.3,0.5,0.3,0.5,0.95,0.05,0.95"
+
+# Persons and cars, stricter confidence, longer cooldown
+python CV_v2.py --video test.mp4 --classes 0 2 --conf 0.5 --cooldown 2.0
+
+# Live webcam
+python CV_v2.py --video 0 --seconds 30
 ```
+
+### CLI arguments
 
 | Argument | Default | Description |
 |---|---|---|
@@ -55,139 +123,101 @@ python cctv_detect.py --video test.mp4 --seconds 10
 | `--out` | `output.mp4` | Annotated output video |
 | `--events` | `events.json` | JSON report |
 
-Example with a custom zone (left half of the frame, persons only):
+Zone coordinates are **normalized (0 to 1)**, so the same zone works on any resolution. The default zone resolves to `[507,183] to [875,497]` pixels on a 922 x 524 frame.
 
-```bash
-python cctv_detect.py --video test.mp4 --zone "0.05,0.3,0.5,0.3,0.5,0.95,0.05,0.95" --classes 0
-```
+---
 
-## Output files
+## Output
 
-- `output.mp4`: video with the zone (red), bounding boxes, labels, FPS and event counter. Objects inside the zone turn red.
-- `events.json`: full report, described below.
+- `output.mp4`: video with the zone (red), bounding boxes, labels, FPS and an event counter. Objects inside the zone turn red.
+- `events.json`: full machine-readable report. A real run is checked in at [`output/events.json`](output/events.json).
 
-## JSON output reference
-
-The report has five top-level sections.
-
-### Example
-
-> Values below are illustrative. Your numbers will differ depending on the video.
+### JSON report structure
 
 ```json
 {
-  "video_info": {
-    "source": "test.mp4",
-    "resolution": {"width": 1280, "height": 720},
-    "source_fps": 30.0,
-    "frames_processed": 300,
-    "duration_processed_sec": 10.0
-  },
-  "config": {
-    "model": "yolov8n.pt",
-    "confidence_threshold": 0.4,
-    "event_cooldown_sec": 1.0,
-    "warmup_frames": 5,
-    "zone": {
-      "name": "restricted_zone_1",
-      "polygon_pixels": [[704, 252], [1216, 252], [1216, 684], [704, 684]]
-    }
-  },
-  "performance": {
-    "total_processing_time_sec": 44.1,
-    "avg_processing_fps": 6.8
-  },
-  "summary": {
-    "total_zone_entry_events": 2,
-    "events_by_class": {"person": 2},
-    "unique_objects_seen": {"person": 8, "car": 3},
-    "total_detections_across_frames": {"person": 1170, "car": 662},
-    "objects_already_inside_zone_at_start": 2
-  },
-  "events": [
-    {
-      "event_id": 1,
-      "event_type": "zone_entry",
-      "zone": "restricted_zone_1",
-      "timestamp_sec": 2.2,
-      "frame_number": 66,
-      "track_id": 2,
-      "object_class": "person",
-      "confidence": 0.87,
-      "bbox_pixels": {"x1": 640, "y1": 210, "x2": 720, "y2": 400},
-      "foot_point_pixels": {"x": 680, "y": 400}
-    }
-  ]
+  "video_info":  { "source": "test.mp4", "resolution": {"width": 922, "height": 524},
+                   "source_fps": 30.06, "frames_processed": 300, "duration_processed_sec": 9.98 },
+  "config":      { "model": "yolov8n.pt", "confidence_threshold": 0.4, "event_cooldown_sec": 1.0,
+                   "warmup_frames": 5,
+                   "zone": { "name": "restricted_zone_1",
+                             "polygon_pixels": [[507,183],[875,183],[875,497],[507,497]] } },
+  "performance": { "total_processing_time_sec": 37.31, "avg_processing_fps": 8.04 },
+  "summary":     { "total_zone_entry_events": 2,
+                   "events_by_class": {"person": 2},
+                   "unique_objects_seen": {"car": 3, "person": 9},
+                   "total_detections_across_frames": {"car": 662, "person": 1170},
+                   "objects_already_inside_zone_at_start": 2 },
+  "events":      [ ... ]
 }
 ```
 
-### `video_info`: about the input video
+### A real event
 
-| Field | Meaning |
-|---|---|
-| `source` | Video file path (or webcam index) used as input |
-| `resolution.width / height` | Frame size in pixels |
-| `source_fps` | Frame rate of the original video |
-| `frames_processed` | Number of frames actually analysed |
-| `duration_processed_sec` | Length of video analysed, in seconds (`frames_processed / source_fps`) |
+```json
+{
+  "event_id": 1,
+  "event_type": "zone_entry",
+  "zone": "restricted_zone_1",
+  "timestamp_sec": 0.83,
+  "frame_number": 25,
+  "track_id": 3,
+  "object_class": "person",
+  "confidence": 0.85,
+  "bbox_pixels": {"x1": 479, "y1": 56, "x2": 564, "y2": 259},
+  "foot_point_pixels": {"x": 521, "y": 259}
+}
+```
 
-### `config`: settings used for this run
+### Field reference
 
-| Field | Meaning |
-|---|---|
-| `model` | YOLO weights used |
-| `confidence_threshold` | Detections below this confidence were discarded |
-| `event_cooldown_sec` | Minimum gap between two events for the same object |
-| `warmup_frames` | Initial frames in which objects already inside the zone are ignored for entry events |
-| `zone.name` | Label of the restricted zone |
-| `zone.polygon_pixels` | Zone corners in pixel coordinates `[x, y]` |
+| Section | Field | Meaning |
+|---|---|---|
+| `video_info` | `frames_processed`, `duration_processed_sec` | Frames analysed and their length in seconds |
+| `config` | `warmup_frames`, `event_cooldown_sec` | Settings used for duplicate-event protection |
+| `performance` | `avg_processing_fps` | Frames per second on this machine; real-time needs a value at or above `source_fps` |
+| `summary` | `unique_objects_seen` | Number of **distinct** objects per class (distinct track IDs) |
+| `summary` | `total_detections_across_frames` | Sum of detections over all frames; one person seen for 50 frames counts 50 times |
+| `summary` | `objects_already_inside_zone_at_start` | Objects inside the zone from the start, not counted as entries |
+| `events[]` | `track_id` | Persistent ID assigned by the tracker |
+| `events[]` | `foot_point_pixels` | Bottom-center of the box, the exact point tested against the zone |
 
-### `performance`: processing speed
-
-| Field | Meaning |
-|---|---|
-| `total_processing_time_sec` | Wall-clock time taken to process the video |
-| `avg_processing_fps` | Frames processed per second on this machine. Real-time needs a value at or above `source_fps` |
-
-### `summary`: quick overview of the run
-
-| Field | Meaning |
-|---|---|
-| `total_zone_entry_events` | Number of entries into the restricted zone |
-| `events_by_class` | Entry events split by object type |
-| `unique_objects_seen` | Number of **distinct** objects per class (distinct track IDs) |
-| `total_detections_across_frames` | Sum of detections over all frames. One person visible for 50 frames counts 50 times, so this is much larger than the number of unique objects |
-| `objects_already_inside_zone_at_start` | Objects that were in the zone from the start and were therefore not counted as entries |
-
-### `events`: one entry per zone entry
-
-| Field | Meaning |
-|---|---|
-| `event_id` | Running event number, starting from 1 |
-| `event_type` | Kind of event. Currently only `zone_entry` |
-| `zone` | Name of the zone that was entered |
-| `timestamp_sec` | Time in the video when the entry happened |
-| `frame_number` | Frame index of the entry (starts at 0) |
-| `track_id` | Persistent ID of the object assigned by the tracker |
-| `object_class` | What the object is, e.g. `person`, `car` |
-| `confidence` | Detector confidence for that frame (0 to 1) |
-| `bbox_pixels` | Bounding box corners: top-left `(x1, y1)`, bottom-right `(x2, y2)` |
-| `foot_point_pixels` | Bottom-center point of the box, the point tested against the zone |
+---
 
 ## Limitations
 
-- Zone is a single fixed polygon defined by the user.
-- The zone test uses the box's bottom-center, which assumes a roughly front or top-down camera angle.
-- Track IDs can switch when objects are heavily occluded.
-- Speed depends on hardware. A CPU run is slower than real time; use a GPU or a smaller input for live streams.
+- **Speed:** 8.04 FPS end-to-end on an HP 15s laptop is about 3.7x slower than real time (37.31 s to process 9.98 s of video). Use a GPU, a smaller input size, or frame skipping for live streams.
+- A single fixed polygon zone, defined by the user.
+- The foot-point test assumes a roughly front or top-down camera angle.
+- Track IDs can switch under heavy occlusion, and an object that is first detected *inside* the zone after the warm-up window (or re-acquired under a new ID) is counted as an entry.
+- Evaluated on one short clip; detection and tracking accuracy (precision/recall, ID switches) has not been formally measured.
 
-## Possible improvements
+## Roadmap
 
-- Multiple zones and zone-exit / loitering events
-- RTSP stream input for live CCTV cameras
-- Sending events to a message queue or webhook
-- Interactive zone drawing
+- [ ] Multiple zones, plus zone-exit and loitering events
+- [ ] RTSP stream input for live CCTV cameras
+- [ ] Push events to a message queue or webhook
+- [ ] Interactive zone drawing
+- [ ] Benchmark on GPU and with a larger model (`yolov8s`, `yolov8m`)
+- [ ] Unit tests for the zone-entry logic
 
 ## Tech stack
 
-Python, OpenCV, Ultralytics YOLO, NumPy, JSON
+Python, OpenCV, Ultralytics YOLOv8, NumPy, JSON
+
+## Repository structure
+
+```
+OpenCV_Yolo/
+├── CV_v2.py            # detection, tracking and zone-event pipeline
+├── requirements.txt
+├── test.mp4            # sample footage
+├── output/
+│   ├── events.json     # sample report from a real run
+│   └── demo.png        # screenshot of the annotated output
+└── README.md
+```
+
+## Author
+
+**Krishna Lal** · [GitHub](https://github.com/Krish033-source) · [LinkedIn](https://www.linkedin.com/in/krishna-lal-5b1a22321) · [Portfolio](https://krbtech.xyz)
